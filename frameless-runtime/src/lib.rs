@@ -3,7 +3,7 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, Encode, HasCompact};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 
 use log::info;
@@ -37,7 +37,7 @@ curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d  
 	"jsonrpc":"2.0",
 	"id":1,
 	"method":"author_submitExtrinsic",
-	"params": ["0x"]
+	"params": ["0x011403"]
 }'
 
 curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d   '{
@@ -131,10 +131,16 @@ pub struct BasicExtrinsic(Action);
 
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
+pub struct AsCompact<T: HasCompact>(#[codec(compact)] T);
+
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
+#[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
 pub enum Action {
-	Flip,
-	Add(u32),
-	Multiply(u32),
+	Flip { salt: u8 },
+	Add { value: AsCompact<u32>, salt: u8 },
+	Multiply { value: AsCompact<u32>, salt: u8 },
+	Upgrade { password: Vec<u8>, salt: u8 },
+	Kill { password: Vec<u8>, salt: u8 },
 }
 
 impl Extrinsic for BasicExtrinsic {
@@ -148,9 +154,11 @@ impl Extrinsic for BasicExtrinsic {
 
 // 686561646572 raw storage key
 pub const HEADER_KEY: [u8; 6] = *b"header";
-pub const FLIP_KEY: [u8; 4] = *b"flip";
-pub const ADD_KEY: [u8; 3] = *b"add";
-pub const MULTIPLY_KEY: [u8; 8] = *b"multiply";
+const FLIP_KEY: [u8; 4] = *b"flip";
+const ADD_KEY: [u8; 3] = *b"add";
+const MULTIPLY_KEY: [u8; 8] = *b"multiply";
+const KILL_PASSWORD: [u8; 3] = *b"bye";
+const UPGRADE_PASSWORD: [u8; 12] = *b"obsolescence";
 
 /// The main struct in this module. In frame this comes from `construct_runtime!`
 pub struct Runtime;
@@ -171,6 +179,7 @@ impl sp_api::Core<Block> for Runtime {
 			todo!();
 		}
 
+
 		Self::finalize_block();
 	}
 
@@ -185,23 +194,53 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 	fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
 		info!(target: "frameless", "🖼️ Entering apply_extrinsic: {:?}", extrinsic);
 
-		// match extrinsic.0 {
-		// 	Action::Flip => {
-		// 		let bit = sp_io::storage::get(&FLIP_KEY)
-		// 			.map_or(false, |v| bool::decode(&mut &*v).unwrap_or(false));
-		// 		sp_io::storage::set(&FLIP_KEY, &bit.encode());
-		// 	},
-		// 	Action::Add(value) => {
-		// 		let existing = sp_io::storage::get(&ADD_KEY)
-		// 			.map_or(0, |v| u32::decode(&mut &*v).unwrap_or(0));
-		// 		sp_io::storage::set(&ADD_KEY, &(existing + value).encode());
-		// 	},
-		// 	Action::Multiply(value) => {
-		// 		let existing = sp_io::storage::get(&MULTIPLY_KEY)
-		// 			.map_or(0, |v| u32::decode(&mut &*v).unwrap_or(0));
-		// 		sp_io::storage::set(&MULTIPLY_KEY, &(existing * value).encode());
-		// 	},
-		// }
+		match extrinsic.0 {
+			Action::Flip{ .. } => {
+				let mut bit = sp_io::storage::get(&FLIP_KEY)
+					.map_or(false, |v| bool::decode(&mut &*v).unwrap_or(false));
+					info!(target: "flipper", "current bit: {bit}");
+					bit = !bit;
+					sp_io::storage::set(&FLIP_KEY, &bit.encode());
+					info!(target: "flipper", "stored flipped bit: {bit}");
+			},
+			Action::Add{ value, .. } => {
+					let existing = sp_io::storage::get(&ADD_KEY)
+					.map_or(0, |v| u32::decode(&mut &*v).unwrap_or(0));
+					info!(target: "adder", "existing value: {existing} supplied value: {}", value.0);
+					let result = existing + value.0;
+					sp_io::storage::set(&ADD_KEY, &result.encode());
+					info!(target: "adder", "stored result: {result}");
+			},
+			Action::Multiply{value, ..} => {
+				let existing = sp_io::storage::get(&MULTIPLY_KEY)
+					.map_or(1, |v| u32::decode(&mut &*v).unwrap_or(1));
+					info!(target: "multiplier", "existing value: {existing} supplied value: {}", value.0);
+					let result = existing * value.0;
+				sp_io::storage::set(&MULTIPLY_KEY, &result.encode());
+					info!(target: "multiplier", "stored result: {result}");
+			},
+			Action::Upgrade{password, ..} => {
+				if password == UPGRADE_PASSWORD {
+						info!(target: "upgrader", "upgrade initiated");
+
+						info!(target: "upgrader", "todo");
+						//sp_io::storage::set(sp_storage::well_known_keys::CODE.into(), &vec![]);
+						}
+					else {
+						info!(target: "upgrader", "upgrade rejected");
+					}
+			},
+			Action::Kill{password, ..} => {
+				if password == KILL_PASSWORD {
+						info!(target: "killer", "kill switch engaged");
+						sp_io::storage::set(sp_storage::well_known_keys::CODE.into(), &vec![]);
+						}
+					else {
+						info!(target: "killer", "kill switch denied");
+					}
+
+			},
+		}
 
 		Ok(Ok(()))
 	}
