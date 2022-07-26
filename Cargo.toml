@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "node",
+    "frameless-runtime",
+    "flipper-lib"
+]
+[profile.release]
+panic = "unwind"
