@@ -99,7 +99,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	state_version: 1,
 };
 
-/// The version infromation used to identify this runtime when compiled natively.
+/// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
 pub fn native_version() -> NativeVersion {
 	NativeVersion { runtime_version: VERSION, can_author_with: Default::default() }
@@ -127,7 +127,10 @@ pub type Block = generic::Block<Header, BasicExtrinsic>;
 // this extrinsic type does nothing other than fulfill the compiler.
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
-pub struct BasicExtrinsic(Action);
+pub struct BasicExtrinsic {
+	action: Action,
+	salt: u8,
+}
 
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
@@ -136,11 +139,11 @@ pub struct AsCompact<T: HasCompact>(#[codec(compact)] T);
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
 pub enum Action {
-	Flip { salt: u8 },
-	Add { value: AsCompact<u32>, salt: u8 },
-	Multiply { value: AsCompact<u32>, salt: u8 },
-	Upgrade { password: Vec<u8>, payload: Vec<u8>, salt: u8 },
-	Kill { password: Vec<u8>, salt: u8 },
+	Flip,
+	Add(AsCompact<u32>),
+	Multiply(AsCompact<u32>),
+	Upgrade { password: Vec<u8>, payload: Vec<u8> },
+	Kill { password: Vec<u8> },
 }
 
 impl Extrinsic for BasicExtrinsic {
@@ -148,17 +151,17 @@ impl Extrinsic for BasicExtrinsic {
 	type SignaturePayload = ();
 
 	fn new(data: Self::Call, _: Option<Self::SignaturePayload>) -> Option<Self> {
-		Some(Self(data))
+		Some(Self { action: data, salt: 0 })
 	}
 }
 
 // 686561646572 raw storage key
 pub const HEADER_KEY: [u8; 6] = *b"header";
-const FLIP_KEY: [u8; 4] = *b"flip";
-const ADD_KEY: [u8; 3] = *b"add";
-const MULTIPLY_KEY: [u8; 8] = *b"multiply";
+const BIT_KEY: [u8; 3] = *b"bit";
+const VALUE_KEY: [u8; 5] = *b"value";
 const KILL_PASSWORD: [u8; 3] = *b"bye";
 const UPGRADE_PASSWORD: [u8; 12] = *b"obsolescence";
+const EMOJI: &str = "🤖";
 
 /// The main struct in this module. In frame this comes from `construct_runtime!`
 pub struct Runtime;
@@ -171,7 +174,7 @@ impl sp_api::Core<Block> for Runtime {
 	}
 
 	fn execute_block(block: Block) {
-		info!(target: "frameless", "🖼️ Entering execute_block. block: {:?}", block);
+		info!(target: "frameless", "🖼{EMOJI}️ Entering execute_block. block: {:?}", block);
 		Self::initialize_block(&block.header);
 
 		for _transaction in block.extrinsics {
@@ -184,7 +187,7 @@ impl sp_api::Core<Block> for Runtime {
 	}
 
 	fn initialize_block(header: &<Block as BlockT>::Header) {
-		info!(target: "frameless", "🖼️ Entering initialize_block. header: {:?}", header);
+		info!(target: "frameless", "🖼{EMOJI}️ Entering initialize_block. header: {:?}", header);
 		sp_io::storage::set(&HEADER_KEY, &header.encode());
 	}
 }
@@ -192,33 +195,31 @@ impl sp_api::Core<Block> for Runtime {
 // https://substrate.dev/rustdocs/master/sc_block_builder/trait.BlockBuilderApi.html
 impl sp_block_builder::BlockBuilder<Block> for Runtime {
 	fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
-		info!(target: "frameless", "🖼️ Entering apply_extrinsic: {:?}", extrinsic);
+		info!(target: "frameless", "🖼{EMOJI}️ Entering apply_extrinsic: {:?}", extrinsic);
 
-			const EMOJI : &str = "🤖";
-
-		match extrinsic.0 {
-			Action::Flip{ .. } => {
-				let mut bit = sp_io::storage::get(&FLIP_KEY)
+		match extrinsic.action {
+			Action::Flip => {
+				let mut bit = sp_io::storage::get(&BIT_KEY)
 					.map_or(false, |v| bool::decode(&mut &*v).unwrap_or(false));
 					info!(target: "flipper", "{EMOJI} current bit: {bit}");
 					bit = !bit;
-					sp_io::storage::set(&FLIP_KEY, &bit.encode());
+					sp_io::storage::set(&BIT_KEY, &bit.encode());
 					info!(target: "flipper", "{EMOJI} stored flipped bit: {bit}");
 			},
-			Action::Add{ value, .. } => {
-					let existing = sp_io::storage::get(&ADD_KEY)
+			Action::Add(value) => {
+					let existing = sp_io::storage::get(&VALUE_KEY)
 					.map_or(0, |v| u32::decode(&mut &*v).unwrap_or(0));
 					info!(target: "adder", "{EMOJI} existing value: {existing} supplied value: {}", value.0);
 					let result = existing + value.0;
-					sp_io::storage::set(&ADD_KEY, &result.encode());
+					sp_io::storage::set(&VALUE_KEY, &result.encode());
 					info!(target: "adder", "{EMOJI} stored result: {result}");
 			},
-			Action::Multiply{value, ..} => {
-				let existing = sp_io::storage::get(&MULTIPLY_KEY)
+			Action::Multiply(value) => {
+				let existing = sp_io::storage::get(&VALUE_KEY)
 					.map_or(1, |v| u32::decode(&mut &*v).unwrap_or(1));
 					info!(target: "multiplier", "{EMOJI} existing value: {existing} supplied value: {}", value.0);
 					let result = existing * value.0;
-				sp_io::storage::set(&MULTIPLY_KEY, &result.encode());
+				sp_io::storage::set(&VALUE_KEY, &result.encode());
 					info!(target: "multiplier", "{EMOJI} stored result: {result}");
 			},
 			Action::Upgrade{password, payload, ..} => {
@@ -246,7 +247,7 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 	}
 
 	fn finalize_block() -> <Block as BlockT>::Header {
-		info!(target: "frameless", "🖼️ Entering finalize block.");
+		info!(target: "frameless", "🖼{EMOJI}️ Entering finalize block.");
 
 		let raw_header = sp_io::storage::get(&HEADER_KEY)
 			.expect("We initialized with header, it never got mutated, qed");
@@ -262,7 +263,7 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 
 	// This runtime does not expect any inherents so it does not insert any into blocks it builds.
 	fn inherent_extrinsics(_data: sp_inherents::InherentData) -> Vec<<Block as BlockT>::Extrinsic> {
-		info!(target: "frameless", "🖼️ Entering inherent_extrinsics.");
+		info!(target: "frameless", "🖼{EMOJI}️ Entering inherent_extrinsics.");
 		Vec::new()
 	}
 
@@ -271,7 +272,7 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 		block: Block,
 		_data: sp_inherents::InherentData,
 	) -> sp_inherents::CheckInherentsResult {
-		info!(target: "frameless", "🖼️ Entering check_inherents. block: {:?}", block);
+		info!(target: "frameless", "🖼{EMOJI}️ Entering check_inherents. block: {:?}", block);
 		sp_inherents::CheckInherentsResult::default()
 	}
 }
@@ -282,10 +283,10 @@ impl sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block> for Runtime
 		tx: <Block as BlockT>::Extrinsic,
 		block_hash: <Block as BlockT>::Hash,
 	) -> TransactionValidity {
-		info!(target: "frameless", "🖼️ Entering validate_transaction. source: {:?}, tx: {:?}, block hash: {:?}", source, tx, block_hash);
+		info!(target: "frameless", "🖼{EMOJI}️ Entering validate_transaction. source: {:?}, tx: {:?}, block hash: {:?}", source, tx, block_hash);
 
 		// we don't know how to validate this -- It should be fine??
-		let data = tx.0;
+		let data = tx.action;
 		Ok(ValidTransaction { provides: vec![data.encode()], ..Default::default() })
 	}
 }
@@ -306,7 +307,7 @@ impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 
 impl sp_session::SessionKeys<Block> for Runtime {
 	fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
-		info!(target: "frameless", "🖼️ Entering generate_session_keys. seed: {:?}", seed);
+		info!(target: "frameless", "🖼{EMOJI}️ Entering generate_session_keys. seed: {:?}", seed);
 		opaque::SessionKeys::generate(seed)
 	}
 

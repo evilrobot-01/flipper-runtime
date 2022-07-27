@@ -5,11 +5,11 @@ pub struct AsCompact<T: HasCompact>(#[codec(compact)] T);
 
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
 pub enum Action {
-	Flip { salt: u8 },
-	Add { value: AsCompact<u32>, salt: u8 },
-	Multiply { value: AsCompact<u32>, salt: u8 },
-	Upgrade { password: Vec<u8>, payload: Vec<u8>, salt: u8 },
-	Kill { password: Vec<u8>, salt: u8 },
+	Flip,
+	Add(AsCompact<u32>),
+	Multiply(AsCompact<u32>),
+	Upgrade { password: Vec<u8>, payload: Vec<u8> },
+	Kill { password: Vec<u8> },
 }
 
 #[cfg(test)]
@@ -19,43 +19,58 @@ mod tests {
 	use std::io::Read;
 
 	#[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
-	struct TestExtrinsic(Action);
+	struct TestExtrinsic {
+		action: Action,
+		salt: u8,
+	}
 
 	fn output(value: &Vec<u8>) -> String {
+		value.iter().map(|b| format!("{:02x?}", b)).fold(
+			String::with_capacity(value.len() * 2),
+			|mut r, b| {
+				r.push_str(&b);
+				r
+			},
+		)
+	}
+
+	fn author_submit_extrinsic(action: &str, salt: u8) -> String {
 		format!(
-			"0x{}",
-			value.iter().map(|b| format!("{:02x?}", b)).fold(
-				String::with_capacity(value.len() * 2),
-				|mut r, b| {
-					r.push_str(&b);
-					r
-				}
-			)
+			r#"curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d '{{
+	"jsonrpc":"2.0",
+	"id":1,
+	"method":"author_submitExtrinsic",
+	"params": ["0x{action}{}"]
+}}'"#,
+			output(&salt.encode())
 		)
 	}
 
 	#[test]
 	fn encode_flip() {
-		let encoded = Action::Flip { salt: 0 }.encode();
-		assert_eq!("[00, 00]", format!("{:02x?}", encoded));
-		assert_eq!("0x0000", output(&encoded));
-
-		let encoded = Action::Flip { salt: 1 }.encode();
-		assert_eq!("0x0001", output(&encoded));
+		let encoded = Action::Flip.encode();
+		assert_eq!("[00]", format!("{:02x?}", encoded));
+		let encoded = output(&encoded);
+		assert_eq!("00", encoded);
+		println!("{}", author_submit_extrinsic(&encoded, 0))
 	}
 
 	#[test]
 	fn encode_add() {
-		let encoded = Action::Add { value: AsCompact(5), salt: 3 }.encode();
-		assert_eq!("[01, 14, 03]", format!("{:02x?}", encoded));
-		assert_eq!("0x011403", output(&encoded));
+		let encoded = Action::Add(AsCompact(5)).encode();
+		assert_eq!("[01, 14]", format!("{:02x?}", encoded));
+		let encoded = output(&encoded);
+		assert_eq!("0114", encoded);
+		println!("{}", author_submit_extrinsic(&encoded, 0))
 	}
 
 	#[test]
 	fn encode_multiply() {
-		let encoded = Action::Multiply { value: AsCompact(128), salt: 0 }.encode();
-		assert_eq!("[02, 01, 02, 00]", format!("{:02x?}", encoded));
-		assert_eq!("0x02010200", output(&encoded));
+		let encoded = Action::Multiply(AsCompact(128)).encode();
+		assert_eq!("[02, 01, 02]", format!("{:02x?}", encoded));
+		let encoded = output(&encoded);
+		assert_eq!("020102", encoded);
+		println!("{}", author_submit_extrinsic(&encoded, 0))
 	}
 
 	#[test]
@@ -63,14 +78,15 @@ mod tests {
 		let encoded = Action::Upgrade {
 			password: "obsolescence".to_string().into_bytes(),
 			payload: "wasm_blob".to_string().into_bytes(),
-			salt: 0,
 		}
 		.encode();
 		assert_eq!(
-			"[03, 30, 6f, 62, 73, 6f, 6c, 65, 73, 63, 65, 6e, 63, 65, 24, 77, 61, 73, 6d, 5f, 62, 6c, 6f, 62, 00]",
+			"[03, 30, 6f, 62, 73, 6f, 6c, 65, 73, 63, 65, 6e, 63, 65, 24, 77, 61, 73, 6d, 5f, 62, 6c, 6f, 62]",
 			format!("{:02x?}", encoded)
 		);
-		assert_eq!("0x03306f62736f6c657363656e6365247761736d5f626c6f6200", output(&encoded));
+		let encoded = output(&encoded);
+		assert_eq!("03306f62736f6c657363656e6365247761736d5f626c6f62", encoded);
+		println!("{}", author_submit_extrinsic(&encoded, 0))
 	}
 
 	#[test]
@@ -84,16 +100,17 @@ mod tests {
 		reader.read_to_end(&mut payload).unwrap();
 
 		let encoded =
-			Action::Upgrade { password: "obsolescence".to_string().into_bytes(), payload, salt: 0 }
-				.encode();
-		println!("{}", output(&encoded));
+			Action::Upgrade { password: "obsolescence".to_string().into_bytes(), payload }.encode();
+		println!("{}", author_submit_extrinsic(&*output(&encoded), 0));
 	}
 
 	#[test]
 	fn kills() {
-		let encoded = Action::Kill { password: "bye".to_string().into_bytes(), salt: 0 }.encode();
-		assert_eq!("[04, 0c, 62, 79, 65, 00]", format!("{:02x?}", encoded));
-		assert_eq!("0x040c62796500", output(&encoded));
+		let encoded = Action::Kill { password: "bye".to_string().into_bytes() }.encode();
+		assert_eq!("[04, 0c, 62, 79, 65]", format!("{:02x?}", encoded));
+		let encoded = output(&encoded);
+		assert_eq!("040c627965", encoded);
+		println!("{}", author_submit_extrinsic(&encoded, 0));
 	}
 
 	#[test]
