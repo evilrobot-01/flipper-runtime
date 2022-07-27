@@ -139,7 +139,7 @@ pub enum Action {
 	Flip { salt: u8 },
 	Add { value: AsCompact<u32>, salt: u8 },
 	Multiply { value: AsCompact<u32>, salt: u8 },
-	Upgrade { password: Vec<u8>, salt: u8 },
+	Upgrade { password: Vec<u8>, payload: Vec<u8>, salt: u8 },
 	Kill { password: Vec<u8>, salt: u8 },
 }
 
@@ -194,49 +194,49 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 	fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
 		info!(target: "frameless", "🖼️ Entering apply_extrinsic: {:?}", extrinsic);
 
+			const EMOJI : &str = "🤖";
+
 		match extrinsic.0 {
 			Action::Flip{ .. } => {
 				let mut bit = sp_io::storage::get(&FLIP_KEY)
 					.map_or(false, |v| bool::decode(&mut &*v).unwrap_or(false));
-					info!(target: "flipper", "current bit: {bit}");
+					info!(target: "flipper", "{EMOJI} current bit: {bit}");
 					bit = !bit;
 					sp_io::storage::set(&FLIP_KEY, &bit.encode());
-					info!(target: "flipper", "stored flipped bit: {bit}");
+					info!(target: "flipper", "{EMOJI} stored flipped bit: {bit}");
 			},
 			Action::Add{ value, .. } => {
 					let existing = sp_io::storage::get(&ADD_KEY)
 					.map_or(0, |v| u32::decode(&mut &*v).unwrap_or(0));
-					info!(target: "adder", "existing value: {existing} supplied value: {}", value.0);
+					info!(target: "adder", "{EMOJI} existing value: {existing} supplied value: {}", value.0);
 					let result = existing + value.0;
 					sp_io::storage::set(&ADD_KEY, &result.encode());
-					info!(target: "adder", "stored result: {result}");
+					info!(target: "adder", "{EMOJI} stored result: {result}");
 			},
 			Action::Multiply{value, ..} => {
 				let existing = sp_io::storage::get(&MULTIPLY_KEY)
 					.map_or(1, |v| u32::decode(&mut &*v).unwrap_or(1));
-					info!(target: "multiplier", "existing value: {existing} supplied value: {}", value.0);
+					info!(target: "multiplier", "{EMOJI} existing value: {existing} supplied value: {}", value.0);
 					let result = existing * value.0;
 				sp_io::storage::set(&MULTIPLY_KEY, &result.encode());
-					info!(target: "multiplier", "stored result: {result}");
+					info!(target: "multiplier", "{EMOJI} stored result: {result}");
 			},
-			Action::Upgrade{password, ..} => {
+			Action::Upgrade{password, payload, ..} => {
 				if password == UPGRADE_PASSWORD {
-						info!(target: "upgrader", "upgrade initiated");
-
-						info!(target: "upgrader", "todo");
-						//sp_io::storage::set(sp_storage::well_known_keys::CODE.into(), &vec![]);
+						info!(target: "upgrader", "{EMOJI} upgrade initiated");
+						sp_io::storage::set(sp_storage::well_known_keys::CODE.into(), &payload);
 						}
 					else {
-						info!(target: "upgrader", "upgrade rejected");
+						info!(target: "upgrader", "{EMOJI} upgrade rejected");
 					}
 			},
 			Action::Kill{password, ..} => {
 				if password == KILL_PASSWORD {
-						info!(target: "killer", "kill switch engaged");
+						info!(target: "killer", "{EMOJI} kill switch engaged");
 						sp_io::storage::set(sp_storage::well_known_keys::CODE.into(), &vec![]);
 						}
 					else {
-						info!(target: "killer", "kill switch denied");
+						info!(target: "killer", "{EMOJI} kill switch denied");
 					}
 
 			},

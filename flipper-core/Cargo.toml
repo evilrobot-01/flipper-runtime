@@ -1,0 +1,9 @@
+[package]
+name = "flipper-core"
+version = "0.1.0"
+edition = "2021"
+description = "Basic implementation of extrinsic actions (along with scale-encoding)."
+
+[dependencies]
+parity-scale-codec = { version = '3.1.2', default-features = false, features = ['derive'] }
+sp-io = { git = 'https://github.com/paritytech/substrate', branch = "polkadot-v0.9.26", default_features = false, features = ["with-tracing", "std"]}

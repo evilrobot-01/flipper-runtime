@@ -1527,6 +1527,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "flipper-core"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "sp-io",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
