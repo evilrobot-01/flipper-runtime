@@ -372,3 +372,27 @@ impl sp_finality_grandpa::GrandpaApi<Block> for Runtime {
 	}
 }
 }
+
+#[test]
+fn flips() {
+	let mut e = sp_io::TestExternalities::new_empty();
+	e.execute_with(|| {
+		let extrinsic = BasicExtrinsic { action: Action::Flip, salt: 0 };
+
+		// Check no existing value, apply extrinsic and expect resulting value as true
+		assert!(sp_io::storage::get(&BIT_KEY).is_none());
+		let _ = Runtime::apply_extrinsic(extrinsic).unwrap();
+		assert_eq!(
+			true,
+			sp_io::storage::get(&BIT_KEY).map(|v| bool::decode(&mut &*v)).unwrap().unwrap()
+		);
+
+		// Flip again and expect false
+		let extrinsic = BasicExtrinsic { action: Action::Flip, salt: 1 };
+		let _ = Runtime::apply_extrinsic(extrinsic).unwrap();
+		assert_eq!(
+			false,
+			sp_io::storage::get(&BIT_KEY).map(|v| bool::decode(&mut &*v)).unwrap().unwrap()
+		);
+	});
+}

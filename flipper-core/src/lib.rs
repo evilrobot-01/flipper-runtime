@@ -112,35 +112,4 @@ mod tests {
 		assert_eq!("040c627965", encoded);
 		println!("{}", author_submit_extrinsic(&encoded, 0));
 	}
-
-	#[test]
-	fn flips_storage() {
-		let mut e = sp_io::TestExternalities::new_empty();
-		e.execute_with(|| {
-			const KEY: [u8; 3] = *b"BIT";
-			let bit = sp_io::storage::get(&KEY)
-				.map_or(false, |v| bool::decode(&mut &*v).unwrap_or(false));
-			assert_eq!(false, bit);
-			sp_io::storage::set(&KEY, &(!bit).encode());
-		});
-	}
-
-	// 362
-	// 363 #[test]
-	// 364 fn test() {
-	// 365     let mut e = sp_io::TestExternalities::new_empty();
-	// 366     e.execute_with(|| {
-	// 	367         let sc = SignedCall { operation: Operation::Add(5), ..SignedCall::default() };
-	// 	368         let e = BasicExtrinsic::new( sc, None ).unwrap();
-	// 	369         println!("{:?}", e.encode());
-	// 	370         Runtime::apply_extrinsic(e);
-	// 	371         assert_eq!(u32::decode(&mut &*sp_io::storage::get(&STATE_VALUE_0_KEY).unwrap()).unwrap(), 5);
-	// 	372
-	// 	373         let sc = SignedCall { operation: Operation::Add(7), ..SignedCall::default() };
-	// 	374         let e = BasicExtrinsic::new( sc, None ).unwrap();
-	// 	375         println!("{:?}", e.encode());
-	// 	376         Runtime::apply_extrinsic(e);
-	// 	377         assert_eq!(u32::decode(&mut &*sp_io::storage::get(&STATE_VALUE_0_KEY).unwrap()).unwrap(), 12);
-	// 	378     });
-	// 379 }
 }
