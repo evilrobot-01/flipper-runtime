@@ -9,10 +9,10 @@ It does, by all means nothing as it is now.
 
 Try and do as many of the following, in the same order:
 
-1. Make it a flipper: it stores one bool value, and per each transaction, flips that value.
-1. Make it an adder: it stores one u32 value, and each transaction specifies a number, which is added to this value and stored onchain again.
-1. Extend your transaction so that the runtime can be either an adder or a multiplier.
-1. Add a kill-switch to this runtime. Look into well_known_keys to see which key you have to wipe.
+1. ~~Make it a flipper: it stores one bool value, and per each transaction, flips that value.~~
+1. ~~Make it an adder: it stores one u32 value, and each transaction specifies a number, which is added to this value and stored onchain again.~~
+1. ~~Extend your transaction so that the runtime can be either an adder or a multiplier.~~
+1. ~~Add a kill-switch to this runtime. Look into well_known_keys to see which key you have to wipe.~~
 1. Make this runtime upgradable! The upgrade operation can simply be protected by a "password" as you don't have any notion of accounts yet.
 1. Add a notion of accounts and nonces and signatures.
 1. Add a notion of balances
