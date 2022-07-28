@@ -13,7 +13,9 @@ use sp_block_builder::runtime_decl_for_BlockBuilder::BlockBuilder;
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{BlakeTwo256, Block as BlockT, Extrinsic},
-	transaction_validity::{TransactionSource, TransactionValidity, ValidTransaction},
+	transaction_validity::{
+		InvalidTransaction, TransactionSource, TransactionValidity, ValidTransaction,
+	},
 	ApplyExtrinsicResult, BoundToRuntimeAppPublic,
 };
 use sp_std::prelude::*;
@@ -31,13 +33,17 @@ use sp_version::RuntimeVersion;
 
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
+use sp_runtime::transaction_validity::TransactionValidityError;
+
+type Address = sp_core::H256;
+type Signature = sp_core::H512;
 
 /*
 curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d   '{
 	"jsonrpc":"2.0",
 	"id":1,
 	"method":"author_submitExtrinsic",
-	"params": ["0x011403"]
+	"params": ["0x"]
 }'
 
 curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d   '{
@@ -114,7 +120,6 @@ impl BuildStorage for GenesisConfig {
 	fn assimilate_storage(&self, storage: &mut Storage) -> Result<(), String> {
 		// we have nothing to put into storage in genesis, except this:
 		storage.top.insert(well_known_keys::CODE.into(), WASM_BINARY.unwrap().to_vec());
-
 		Ok(())
 	}
 }
@@ -128,8 +133,8 @@ pub type Block = generic::Block<Header, BasicExtrinsic>;
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
 pub struct BasicExtrinsic {
-	action: Action,
-	salt: u8,
+	call: crate::Call,
+	signature: (Address, Signature, AsCompact<u32>),
 }
 
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
@@ -138,7 +143,7 @@ pub struct AsCompact<T: HasCompact>(#[codec(compact)] T);
 
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize, parity_util_mem::MallocSizeOf))]
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
-pub enum Action {
+pub enum Call {
 	Flip,
 	Add(AsCompact<u32>),
 	Multiply(AsCompact<u32>),
@@ -147,11 +152,12 @@ pub enum Action {
 }
 
 impl Extrinsic for BasicExtrinsic {
-	type Call = Action;
-	type SignaturePayload = ();
+	type Call = crate::Call;
+	type SignaturePayload = Signature;
 
-	fn new(data: Self::Call, _: Option<Self::SignaturePayload>) -> Option<Self> {
-		Some(Self { action: data, salt: 0 })
+	fn new(data: Self::Call, _signature: Option<Self::SignaturePayload>) -> Option<Self> {
+		todo!()
+		//Some(Self { action: data, salt: 0 })
 	}
 }
 
@@ -162,6 +168,10 @@ const VALUE_KEY: [u8; 5] = *b"value";
 const KILL_PASSWORD: [u8; 3] = *b"bye";
 const UPGRADE_PASSWORD: [u8; 12] = *b"obsolescence";
 const EMOJI: &str = "🤖";
+const ADMIN_KEY: [u8; 32] = [
+	218, 135, 45, 83, 176, 223, 163, 56, 226, 163, 235, 10, 53, 205, 14, 196, 91, 7, 146, 153, 110,
+	122, 20, 219, 84, 110, 62, 121, 221, 28, 157, 72,
+];
 
 /// The main struct in this module. In frame this comes from `construct_runtime!`
 pub struct Runtime;
@@ -197,8 +207,16 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 	fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
 		info!(target: "frameless", "🖼{EMOJI}️ Entering apply_extrinsic: {:?}", extrinsic);
 
-		match extrinsic.action {
-			Action::Flip => {
+			let (address,signature, _) = extrinsic.signature;
+			let signature = sp_core::sr25519::Signature::from_raw(signature.0);
+			let address = sp_core::sr25519::Public::from_raw(address.0);
+			if !sp_io::crypto::sr25519_verify(&signature, &extrinsic.call.encode(), &address){
+				return Err(
+					TransactionValidityError::Invalid(InvalidTransaction::BadSigner));
+			}
+
+		match extrinsic.call {
+			Call::Flip => {
 				let mut bit = sp_io::storage::get(&BIT_KEY)
 					.map_or(false, |v| bool::decode(&mut &*v).unwrap_or(false));
 					info!(target: "flipper", "{EMOJI} current bit: {bit}");
@@ -206,7 +224,7 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 					sp_io::storage::set(&BIT_KEY, &bit.encode());
 					info!(target: "flipper", "{EMOJI} stored flipped bit: {bit}");
 			},
-			Action::Add(value) => {
+			Call::Add(value) => {
 					let existing = sp_io::storage::get(&VALUE_KEY)
 					.map_or(0, |v| u32::decode(&mut &*v).unwrap_or(0));
 					info!(target: "adder", "{EMOJI} existing value: {existing} supplied value: {}", value.0);
@@ -214,7 +232,7 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 					sp_io::storage::set(&VALUE_KEY, &result.encode());
 					info!(target: "adder", "{EMOJI} stored result: {result}");
 			},
-			Action::Multiply(value) => {
+			Call::Multiply(value) => {
 				let existing = sp_io::storage::get(&VALUE_KEY)
 					.map_or(1, |v| u32::decode(&mut &*v).unwrap_or(1));
 					info!(target: "multiplier", "{EMOJI} existing value: {existing} supplied value: {}", value.0);
@@ -222,8 +240,8 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 				sp_io::storage::set(&VALUE_KEY, &result.encode());
 					info!(target: "multiplier", "{EMOJI} stored result: {result}");
 			},
-			Action::Upgrade{password, payload, ..} => {
-				if password == UPGRADE_PASSWORD {
+			Call::Upgrade{password, payload, ..} => {
+				if password == UPGRADE_PASSWORD && address.0 == ADMIN_KEY {
 						info!(target: "upgrader", "{EMOJI} upgrade initiated");
 						sp_io::storage::set(sp_storage::well_known_keys::CODE.into(), &payload);
 						}
@@ -231,8 +249,8 @@ impl sp_block_builder::BlockBuilder<Block> for Runtime {
 						info!(target: "upgrader", "{EMOJI} upgrade rejected");
 					}
 			},
-			Action::Kill{password, ..} => {
-				if password == KILL_PASSWORD {
+			Call::Kill{password, ..} => {
+				if password == KILL_PASSWORD && address.0 == ADMIN_KEY {
 						info!(target: "killer", "{EMOJI} kill switch engaged");
 						sp_io::storage::set(sp_storage::well_known_keys::CODE.into(), &vec![]);
 						}
@@ -286,7 +304,7 @@ impl sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block> for Runtime
 		info!(target: "frameless", "🖼{EMOJI}️ Entering validate_transaction. source: {:?}, tx: {:?}, block hash: {:?}", source, tx, block_hash);
 
 		// we don't know how to validate this -- It should be fine??
-		let data = tx.action;
+		let data = tx.call;
 		Ok(ValidTransaction { provides: vec![data.encode()], ..Default::default() })
 	}
 }
@@ -373,26 +391,42 @@ impl sp_finality_grandpa::GrandpaApi<Block> for Runtime {
 }
 }
 
-#[test]
-fn flips() {
-	let mut e = sp_io::TestExternalities::new_empty();
-	e.execute_with(|| {
-		let extrinsic = BasicExtrinsic { action: Action::Flip, salt: 0 };
+#[cfg(test)]
+mod tests {
+	use crate::{BasicExtrinsic, Call, Runtime, BIT_KEY};
+	use parity_scale_codec::{Decode, Encode};
+	use sp_application_crypto::Pair;
+	use sp_block_builder::runtime_decl_for_BlockBuilder::BlockBuilder;
 
-		// Check no existing value, apply extrinsic and expect resulting value as true
-		assert!(sp_io::storage::get(&BIT_KEY).is_none());
-		let _ = Runtime::apply_extrinsic(extrinsic).unwrap();
-		assert_eq!(
-			true,
-			sp_io::storage::get(&BIT_KEY).map(|v| bool::decode(&mut &*v)).unwrap().unwrap()
+	#[test]
+	fn flips() {
+		const TEST_KEY: &str = "test key";
+		let pair: sp_core::sr25519::Pair = sp_core::Pair::generate_with_phrase(Some(TEST_KEY)).0;
+		let mut e = sp_io::TestExternalities::new_empty();
+		let call = Call::Flip;
+		let signature = (
+			sp_core::H256(pair.public().0),
+			sp_core::H512(pair.sign(&call.encode()).0),
+			AsCompat(0),
 		);
+		e.execute_with(|| {
+			let extrinsic = BasicExtrinsic { call, signature };
 
-		// Flip again and expect false
-		let extrinsic = BasicExtrinsic { action: Action::Flip, salt: 1 };
-		let _ = Runtime::apply_extrinsic(extrinsic).unwrap();
-		assert_eq!(
-			false,
-			sp_io::storage::get(&BIT_KEY).map(|v| bool::decode(&mut &*v)).unwrap().unwrap()
-		);
-	});
+			// Check no existing value, apply extrinsic and expect resulting value as true
+			assert!(sp_io::storage::get(&BIT_KEY).is_none());
+			let _ = Runtime::apply_extrinsic(extrinsic).unwrap();
+			assert_eq!(
+				true,
+				sp_io::storage::get(&BIT_KEY).map(|v| bool::decode(&mut &*v)).unwrap().unwrap()
+			);
+
+			// Flip again and expect false
+			let extrinsic = BasicExtrinsic { call: Call::Flip, signature };
+			let _ = Runtime::apply_extrinsic(extrinsic).unwrap();
+			assert_eq!(
+				false,
+				sp_io::storage::get(&BIT_KEY).map(|v| bool::decode(&mut &*v)).unwrap().unwrap()
+			);
+		});
+	}
 }

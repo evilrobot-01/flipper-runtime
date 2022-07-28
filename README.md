@@ -15,7 +15,7 @@ Try and do as many of the following, in the same order:
 1. ~~Add a kill-switch to this runtime. Look into well_known_keys to see which key you have to wipe.~~
 1. ~~Make this runtime upgradable! The upgrade operation can simply be protected by a "password" as you don't have 
    any notion of accounts yet.~~
-1. Add a notion of accounts and nonces and signatures.
+1. ~~Add a notion of accounts and nonces and signatures.~~
 1. Add a notion of balances
 1. Write a custom runtime API, and try to call it over the RPC.
 1. Implement a tx-pool api, implement tipping, priority, longevity etc.

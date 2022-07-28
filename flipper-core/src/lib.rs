@@ -4,7 +4,7 @@ use parity_scale_codec::{Decode, Encode, HasCompact};
 pub struct AsCompact<T: HasCompact>(#[codec(compact)] T);
 
 #[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
-pub enum Action {
+pub enum Call {
 	Flip,
 	Add(AsCompact<u32>),
 	Multiply(AsCompact<u32>),
@@ -14,17 +14,24 @@ pub enum Action {
 
 #[cfg(test)]
 mod tests {
-	use crate::{Action, AsCompact};
+	use crate::{AsCompact, Call};
 	use parity_scale_codec::{Decode, Encode};
+	use sp_core::Pair;
 	use std::io::Read;
+
+	type Address = sp_core::H256;
+	type Signature = sp_core::H512;
+
+	const ADMIN_SEED: &str =
+		"dignity fatal coconut isolate evolve cloth scorpion squirrel sentence gate chase olympic";
 
 	#[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
 	struct TestExtrinsic {
-		action: Action,
-		salt: u8,
+		call: Call,
+		signature: (Address, Signature),
 	}
 
-	fn output(value: &Vec<u8>) -> String {
+	fn output(value: &[u8]) -> String {
 		value.iter().map(|b| format!("{:02x?}", b)).fold(
 			String::with_capacity(value.len() * 2),
 			|mut r, b| {
@@ -34,63 +41,66 @@ mod tests {
 		)
 	}
 
-	fn author_submit_extrinsic(action: &str, salt: u8) -> String {
+	fn author_submit_extrinsic(
+		call: &[u8],
+		public_key: sp_core::sr25519::Public,
+		signature: sp_core::sr25519::Signature,
+		nonce: u32,
+	) -> String {
+		let address = sp_core::H256(public_key.0);
+		let signature = sp_core::H512(signature.0);
+		assert!(sp_io::crypto::sr25519_verify(
+			&sp_core::sr25519::Signature::from_raw(signature.0),
+			call,
+			&sp_core::sr25519::Public::from_raw(address.0)
+		));
+
 		format!(
 			r#"curl http://localhost:9933 -H "Content-Type:application/json;charset=utf-8" -d '{{
 	"jsonrpc":"2.0",
 	"id":1,
 	"method":"author_submitExtrinsic",
-	"params": ["0x{action}{}"]
+	"params": ["0x{}{}"]
 }}'"#,
-			output(&salt.encode())
+			output(call),
+			output(&(address, signature, AsCompact(nonce)).encode())
 		)
 	}
 
 	#[test]
 	fn encode_flip() {
-		let encoded = Action::Flip.encode();
-		assert_eq!("[00]", format!("{:02x?}", encoded));
-		let encoded = output(&encoded);
-		assert_eq!("00", encoded);
-		println!("{}", author_submit_extrinsic(&encoded, 0))
+		let pair: sp_core::sr25519::Pair = sp_core::Pair::generate().0;
+		let call = Call::Flip.encode();
+		println!("{}", author_submit_extrinsic(&call, pair.public(), pair.sign(&call), 1))
 	}
 
 	#[test]
 	fn encode_add() {
-		let encoded = Action::Add(AsCompact(5)).encode();
-		assert_eq!("[01, 14]", format!("{:02x?}", encoded));
-		let encoded = output(&encoded);
-		assert_eq!("0114", encoded);
-		println!("{}", author_submit_extrinsic(&encoded, 0))
+		let pair: sp_core::sr25519::Pair = sp_core::Pair::generate().0;
+		let call = Call::Add(AsCompact(5)).encode();
+		println!("{}", author_submit_extrinsic(&call, pair.public(), pair.sign(&call), 1))
 	}
 
 	#[test]
 	fn encode_multiply() {
-		let encoded = Action::Multiply(AsCompact(128)).encode();
-		assert_eq!("[02, 01, 02]", format!("{:02x?}", encoded));
-		let encoded = output(&encoded);
-		assert_eq!("020102", encoded);
-		println!("{}", author_submit_extrinsic(&encoded, 0))
+		let pair: sp_core::sr25519::Pair = sp_core::Pair::generate().0;
+		let call = Call::Multiply(AsCompact(128)).encode();
+		println!("{}", author_submit_extrinsic(&call, pair.public(), pair.sign(&call), 0))
 	}
 
 	#[test]
 	fn upgrade() {
-		let encoded = Action::Upgrade {
+		let pair: sp_core::sr25519::Pair = sp_core::Pair::generate().0;
+		let call = Call::Upgrade {
 			password: "obsolescence".to_string().into_bytes(),
 			payload: "wasm_blob".to_string().into_bytes(),
 		}
 		.encode();
-		assert_eq!(
-			"[03, 30, 6f, 62, 73, 6f, 6c, 65, 73, 63, 65, 6e, 63, 65, 24, 77, 61, 73, 6d, 5f, 62, 6c, 6f, 62]",
-			format!("{:02x?}", encoded)
-		);
-		let encoded = output(&encoded);
-		assert_eq!("03306f62736f6c657363656e6365247761736d5f626c6f62", encoded);
-		println!("{}", author_submit_extrinsic(&encoded, 0))
+		println!("{}", author_submit_extrinsic(&call, pair.public(), pair.sign(&call), 0))
 	}
 
 	#[test]
-	fn upgrade_wasm() {
+	fn upgrade_wasm_admin() {
 		let runtime = std::fs::File::open(
 			"/home/fb/PBA/flipper-runtime/target/release/wbuild/frameless-runtime/frameless_runtime.compact.compressed.wasm",
 		)
@@ -99,17 +109,16 @@ mod tests {
 		let mut payload = Vec::new();
 		reader.read_to_end(&mut payload).unwrap();
 
-		let encoded =
-			Action::Upgrade { password: "obsolescence".to_string().into_bytes(), payload }.encode();
-		println!("{}", author_submit_extrinsic(&*output(&encoded), 0));
+		let pair = sp_core::sr25519::Pair::from_phrase(ADMIN_SEED, None).unwrap().0;
+		let call =
+			Call::Upgrade { password: "obsolescence".to_string().into_bytes(), payload }.encode();
+		println!("{}", author_submit_extrinsic(&call, pair.public(), pair.sign(&call), 0))
 	}
 
 	#[test]
 	fn kills() {
-		let encoded = Action::Kill { password: "bye".to_string().into_bytes() }.encode();
-		assert_eq!("[04, 0c, 62, 79, 65]", format!("{:02x?}", encoded));
-		let encoded = output(&encoded);
-		assert_eq!("040c627965", encoded);
-		println!("{}", author_submit_extrinsic(&encoded, 0));
+		let pair = sp_core::sr25519::Pair::from_phrase(ADMIN_SEED, None).unwrap().0;
+		let call = Call::Kill { password: "bye".to_string().into_bytes() }.encode();
+		println!("{}", author_submit_extrinsic(&call, pair.public(), pair.sign(&call), 0))
 	}
 }
